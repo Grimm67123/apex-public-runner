@@ -30,10 +30,12 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout Private Codebase via Read-Only Token
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+            repository: Grimm67123/apex-inference
+            token: ${{ secrets.PRIVATE_REPO_PAT }}
+            submodules: recursive
 
       - name: STAGE 0 - Ultra-Fast Bounded 6-Second Shallow Disk Reclaimer (Zero Deep-Tree Stalls)
         shell: powershell
