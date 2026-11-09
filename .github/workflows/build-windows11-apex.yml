@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Grimm67123/apex-inference
-          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.READ_ONLY_TOKEN || secrets.APEX_PRIVATE_TOKEN || secrets.APEX_TOKEN || secrets.APEX_PAT || secrets.REPO_TOKEN || secrets.PAT || secrets.PAT_TOKEN || secrets.GH_PAT || secrets.GH_TOKEN || secrets.GITHUB_PAT || secrets.TOKEN || secrets.PRIVATE_TOKEN || secrets.ACCESS_TOKEN || secrets.CLONE_TOKEN || secrets.SOURCE_TOKEN || secrets.CODE_TOKEN || github.token }}
+          token: ${{ secrets.PRIVATE_REPO_PAT || secrets.READ_ONLY_TOKEN || secrets.APEX_PRIVATE_TOKEN || secrets.APEX_TOKEN || secrets.APEX_PAT || secrets.REPO_TOKEN || secrets.PAT || secrets.PAT_TOKEN || secrets.GH_PAT || secrets.GH_TOKEN || secrets.GITHUB_PAT || secrets.TOKEN || secrets.PRIVATE_TOKEN || secrets.ACCESS_TOKEN || secrets.CLONE_TOKEN || secrets.SOURCE_TOKEN || secrets.CODE_TOKEN || github.token }}
           submodules: recursive
 
       - name: STAGE 0 - Ultra-Fast Bounded 6-Second Shallow Disk Reclaimer (Zero Deep-Tree Stalls)
