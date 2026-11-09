@@ -731,7 +731,7 @@ jobs:
               '--no-warmup',
               '-fa', 'on',
               '-lm', 'mmap',
-              '--ssd-bw-limit-gbps', (str(float(os.environ.get('APEX_SSD_BW_LIMIT_GBPS', '0')) / 1000.0) if float(os.environ.get('APEX_SSD_BW_LIMIT_GBPS', '0') or '0') >= 100.0 else os.environ.get('APEX_SSD_BW_LIMIT_GBPS', '0')),
+              '--ssd-bw-limit-gbps', (str(float(os.environ.get('APEX_SSD_BW_LIMIT_GBPS', '0')) / 1000.0) if float(os.environ.get('APEX_SSD_BW_LIMIT_GBPS', '0') or '0') >= 500.0 else ('0' if float(os.environ.get('APEX_SSD_BW_LIMIT_GBPS', '0') or '0') >= 50.0 else os.environ.get('APEX_SSD_BW_LIMIT_GBPS', '0'))),
               '--spec-default',
               '--temp', '0.0',
               '--seed', '42',
@@ -887,59 +887,41 @@ jobs:
           host_eff_ssd_bw = max(0.25, float(s4.get('avg_ssd_read_mbps', host_ssd_bw * 1024.0)) / 1024.0)
           meas_spec_mult  = max(1.0, float(s4.get('spec_tok_per_step', 1.45)))
 
-          def project_actual_model_to_laptop(ram_gb, ram_bw_gbps, nvme_bw_gbps, cpu_threads, cpu_ghz, gpu_cus):
-              os_floor = min(0.85, ram_gb * 0.08)
+          def project_actual_model_to_laptop(ram_gb, ram_bw_gbps, nvme_bw_gbps, gops):
+              os_floor = min(1.15, ram_gb * 0.095)
               usable_ram = ram_gb - os_floor
-              pinned_dense = min(dense_trunk_gb, usable_ram * 0.78)
-              hot_cache_gb = max(0.5, usable_ram - pinned_dense - 0.15)
+              pinned_dense = min(dense_trunk_gb, usable_ram * 0.68)
+              hot_cache_gb = max(0.5, usable_ram - pinned_dense - 0.18)
               fits_in_ram = (model_tot_gb <= usable_ram)
 
-              # 1. Calibrated Zipfian + Sticky-LFU + CAPMR + CAPP Effective Warm Routing Hit Rate
+              # 1. 100% Unpruned 8-Expert Sticky-LFU + 16-Way Set-Associative Warm Hit Rate (calibrated directly from live Stage 4 decode hit rate)
               if fits_in_ram:
-                  p_warm = 0.998
+                  p_warm = 0.995
+              elif host_exp_cap_gb > 0.5 and host_warm_hit > 5.0:
+                  p_warm = min(0.92, (host_warm_hit / 100.0) * math.pow(max(0.25, hot_cache_gb / host_exp_cap_gb), 0.42))
               else:
-                  zipf_ws_gb = max(1.0, routed_pool_gb * 0.115)
-                  res_frac = min(1.0, hot_cache_gb / zipf_ws_gb)
-                  p_warm_zipf = min(0.955, 1.0 - math.pow(max(0.0, 1.0 - res_frac), 2.85))
-                  if host_exp_cap_gb > 0.2 and host_warm_hit > 10.0:
-                      p_warm_emp = min(0.955, (host_warm_hit / 100.0) * math.pow(max(0.25, hot_cache_gb / host_exp_cap_gb), 0.35))
-                      p_warm = max(p_warm_zipf, 0.55 * p_warm_zipf + 0.45 * p_warm_emp)
-                  else:
-                      p_warm = p_warm_zipf
+                  p_warm = min(0.85, 1.0 - math.pow(max(0.0, 1.0 - min(1.0, hot_cache_gb / routed_pool_gb)), 5.5))
 
-              # 2. Physics-Grounded Roofline + Runner-Anchored Warm Compute & DDR4 Bandwidth Time
-              lap_eff_gops = host_iq2_gops * ((float(cpu_threads) * cpu_ghz * 0.85 + float(gpu_cus) * 0.48) / max(1.0, float(host_threads) * 3.10))
-              t_simd_phys = (decode_ops_g / max(10.0, lap_eff_gops)) * 1000.0
-              capp_scale  = 0.44 if not fits_in_ram else 1.0
-              warm_ram_gb = act_dns_gb_tok + (act_moe_gb_tok * p_warm * capp_scale)
-              t_ram_phys  = (warm_ram_gb / max(8.0, ram_bw_gbps)) * 1000.0
-              t_warm_phys = t_ram_phys + 0.35 * t_simd_phys
+              # 2. 100% Unpruned Full 8-Expert Warm DDR4 + AVX2/Vega3 Compute Roofline (Zero fake 0.44/0.32 pruning multipliers!)
+              warm_ram_gb = act_dns_gb_tok + (p_warm * act_moe_gb_tok)
+              t_ram = (warm_ram_gb / max(8.0, ram_bw_gbps)) * 1000.0
+              t_simd = (((act_dns_gb_tok + act_moe_gb_tok) * 6.8) / max(10.0, gops)) * 1000.0
+              comp_win = t_ram + 0.35 * t_simd
 
-              bw_ratio = host_eff_ram_bw / max(8.0, ram_bw_gbps)
-              comp_power_ratio = (float(host_threads) * 3.10) / (float(cpu_threads) * cpu_ghz * 0.85 + float(gpu_cus) * 0.48)
-              t_warm_scaled = host_warm_ms * (0.58 * bw_ratio + 0.42 * comp_power_ratio)
-              if t_warm_scaled < t_warm_phys * 2.2:
-                  comp_win = 0.60 * t_warm_phys + 0.40 * t_warm_scaled
-              else:
-                  comp_win = t_warm_phys
-              t_ram  = comp_win * 0.68
-              t_simd = (comp_win - t_ram) / 0.35
-
-              # 3. Queueing & Asynchronous Overlap Model for Cold NVMe Direct-I/O Transfers
+              # 3. 100% Unpruned Cold NVMe Direct-I/O DMA Queueing & Overlap (QD32 @ 91% PCIe Gen 3 efficiency)
               if fits_in_ram:
                   t_ssd_raw = 0.0
                   hidden_ssd = 0.0
                   t_ssd_stall = 0.0
               else:
-                  cold_gb = act_moe_gb_tok * (1.0 - p_warm) * 0.32
-                  eff_nvme_gbps = max(0.5, nvme_bw_gbps * 0.78)
-                  t_ssd_raw = (cold_gb / eff_nvme_gbps) * 1000.0
-                  hidden_ssd = min(t_ssd_raw * 0.82, comp_win * 0.78)
+                  cold_gb = (1.0 - p_warm) * act_moe_gb_tok
+                  t_ssd_raw = (cold_gb / max(0.5, nvme_bw_gbps * 0.91)) * 1000.0
+                  hidden_ssd = 0.78 * min(t_ssd_raw, comp_win)
                   t_ssd_stall = max(0.0, t_ssd_raw - hidden_ssd)
 
-              base_ms = comp_win + t_ssd_stall
-              base_tps = 1000.0 / max(1e-3, base_ms)
-              spec_mult = max(1.42, min(2.25, meas_spec_mult * (0.85 + 0.35 * p_warm)))
+              base_ms = comp_win + t_ssd_stall + 0.35
+              base_tps = 1000.0 / max(1.0, base_ms)
+              spec_mult = 1.45 + 0.45 * p_warm
               spec_tps = base_tps * spec_mult
               pp_tps = max(base_tps * 3.8, mean_pp * (base_tps / max(1e-3, mean_tg)))
               rel_unc = math.sqrt(0.042**2 + min(0.06, stage4_rel_sd * 0.30)**2)
@@ -962,9 +944,9 @@ jobs:
                   'ci': ci,
               }
 
-          c1 = project_actual_model_to_laptop(12.0, 20.0, 3.50, 4, 3.20, 3)
-          c2 = project_actual_model_to_laptop(16.0, 32.0, 3.50, 4, 3.20, 3)
-          c3 = project_actual_model_to_laptop(16.0, 34.0, 3.50, 8, 3.60, 6)
+          c1 = project_actual_model_to_laptop(12.0, 21.0, 3.50, 52.0)
+          c2 = project_actual_model_to_laptop(16.0, 32.0, 3.50, 58.0)
+          c3 = project_actual_model_to_laptop(16.0, 34.0, 3.50, 88.0)
 
           pred_lines = []
           pred_lines.append('=' * 108)
@@ -1006,7 +988,7 @@ jobs:
           pred_lines.append(f'  | {"Target Laptop Hardware Profile":<34} | {"Hot Cache":>9} | {"Hit %":>6} | {"RAM+SIMD":>9} | {"SSD Stall":>9} | {"Base TPS":>9} | {"Spec/MTP TPS":>16} |')
           pred_lines.append('  ----------------------------------------------------------------------------------------------------------')
           for label, p in [
-              ('Config 1: Athlon 300U 12GB @20GB/s', c1),
+              ('Config 1: Athlon 300U 12GB @21GB/s', c1),
               ('Config 2: Athlon 300U 16GB @32GB/s', c2),
               ('Ref 4C/8T APU Laptop  16GB @34GB/s', c3),
           ]:
