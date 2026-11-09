@@ -23,10 +23,6 @@ on:
         description: "NVMe Sequential Read Cap in GB/s (default 0 = 100% Uncapped Native Max Speed; set 3.5 to emulate PCIe Gen 3 x4)"
         required: false
         default: "0"
-      cache_model_shards:
-        description: "Cache Primary Warm-Seed GGUF Shard (<8.5 GB) in GitHub Actions Cache for Faster Future Runs"
-        required: false
-        default: "true"
 
 env:
   APEX_EMULATE_ACTIVE: "0"
@@ -165,16 +161,7 @@ jobs:
           Write-Host "[Disk Optimization] Storage AFTER cleanup:"
           Get-PSDrive -PSProvider FileSystem | Select-Object Name, @{N="FreeGiB";E={[math]::Round($_.Free/1GB,2)}}, @{N="UsedGiB";E={[math]::Round($_.Used/1GB,2)}} | Out-String | Write-Host
 
-      - name: Cache Compiled Windows 11 Release Binaries (Saves ~12 Billed Actions Minutes When Switching Models)
-        id: win_bin_cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            bin/*.exe
-            bin/*.dll
-          key: apex-win11-bins-v8-${{ hashFiles('CMakeLists.txt', 'apex-inference/CMakeLists.txt', 'apex-inference/orchestrator/**', 'engine/CMakeLists.txt', 'engine/src/**', 'engine/common/**', 'engine/ggml/**', 'engine/tools/**') }}
-
-      - name: STAGE 1 - Sub-60s Unity CMake Release Build on C:\build (Skipped Instantly on Cache Hit!)
+      - name: STAGE 1 - Sub-60s Unity CMake Release Build on C:\build
         shell: powershell
         run: |
           [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -187,11 +174,7 @@ jobs:
             }
           }
           New-Item -ItemType Directory -Force -Path "dist_win11\bin", "bin" | Out-Null
-          if ("${{ steps.win_bin_cache.outputs.cache-hit }}" -eq "true" -and (Test-Path "bin\apex-engine-completion.exe") -and (Test-Path "bin\apex-inference.exe")) {
-            Write-Host "[Build Cache HIT] Restored compiled Windows 11 Release binaries in <1s (0 compile minutes used)!"
-            Copy-Item "bin\*.exe" "dist_win11\bin\" -Force
-            Copy-Item "bin\*.dll" "dist_win11\bin\" -Force -ErrorAction SilentlyContinue
-          } else {
+          if ($true) {
             $env:CL = "/MP /EHsc"
             $cores = [math]::Max(2, [math]::Min(4, [int]$env:NUMBER_OF_PROCESSORS))
             Write-Host "[CMake] Configuring Unity Release Build on C:\build (-DGGML_CCACHE=OFF -DGGML_NATIVE=OFF -DGGML_AVX512=OFF -DGGML_OPENMP=OFF -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_BMI2=ON /MP /EHsc)"
@@ -243,14 +226,6 @@ jobs:
         run: |
           bin\apex-inference.exe --diagnostics
           if exist apex_stage25_telemetry.json copy /Y apex_stage25_telemetry.json dist_win11\ >nul
-
-      - name: Cache Primary Warm-Seed GGUF Shard (<8.5 GiB Within GitHub 10 GB Cache Limit)
-        id: gguf_shard_cache
-        if: ${{ (github.event.inputs.cache_model_shards || 'true') == 'true' }}
-        uses: actions/cache@v4
-        with:
-          path: C:\apex_gguf_cache
-          key: apex-gguf-seed-v1-${{ github.event.inputs.hf_repo || 'unsloth/GLM-5.3-Flash-GGUF' }}-${{ github.event.inputs.quant_filter || 'UD-IQ2_XXS' }}
 
       - name: STAGE 3 - Fast 32-Worker Parallel Range Download of Selected GGUF Model with Cache Reuse & Simultaneous C:\+D:\ Striping
         shell: powershell
@@ -534,20 +509,6 @@ jobs:
               if os.path.isfile(dst_path) and os.path.getsize(dst_path) == seg_len:
                   print(f'  -> [Cache HIT] Verified existing {os.path.basename(dst_path)} ({seg_len / (1024**3):.2f} GiB) in 0.0s!', flush=True)
                   return
-              cache_dir = r'C:\apex_gguf_cache'
-              cached_cand = os.path.join(cache_dir, os.path.basename(dst_path))
-              if seg_start == 0 and os.path.isfile(cached_cand) and os.path.getsize(cached_cand) == seg_len:
-                  t_cp = time.time()
-                  try:
-                      if os.path.splitdrive(cached_cand)[0].upper() == os.path.splitdrive(dst_path)[0].upper():
-                          if os.path.exists(dst_path): os.remove(dst_path)
-                          os.link(cached_cand, dst_path)
-                      else:
-                          shutil.copyfile(cached_cand, dst_path)
-                      print(f'  -> [Actions Cache HIT] Restored {os.path.basename(dst_path)} ({seg_len / (1024**3):.2f} GiB) in {time.time() - t_cp:.1f}s!', flush=True)
-                      return
-                  except Exception:
-                      pass
               cdn_url = resolve_cdn_url(url)
               parsed_url = urllib.parse.urlsplit(cdn_url)
               vdl_ok = preallocate_contiguous_ntfs(dst_path, seg_len)
@@ -618,8 +579,8 @@ jobs:
                   shard_plans[rev_i] = ('c_full', rev_i + 1, fname, url, logical_dst, phys_dst, sz)
                   rem_c -= ((sz + align_gran - 1) // align_gran) * align_gran
               elif rem_c >= (4 * 1024 ** 3) and sz > (rem_c + 4 * 1024 ** 3):
-                  part1_sz = min(rem_c, (sz // 2 // align_gran) * align_gran)
-                  part0_sz = sz - part1_sz
+                  part0_sz = ((sz - min(rem_c, (sz // 2 // align_gran) * align_gran) + align_gran - 1) // align_gran) * align_gran
+                  part1_sz = sz - part0_sz
                   part1_dst = os.path.join(spill_dir, fname + '.part1')
                   meta_dst  = logical_dst + '.split_meta'
                   shard_plans[rev_i] = ('split', rev_i + 1, fname, url, logical_dst, part1_dst, meta_dst, part0_sz, part1_sz, sz)
@@ -677,18 +638,6 @@ jobs:
               with open(meta_dst, 'w', encoding='utf-8', newline='\n') as mf:
                   mf.write(f'{part0_sz}\n{abs_part1}\n')
 
-          try:
-              cache_dir = r'C:\apex_gguf_cache'
-              os.makedirs(cache_dir, exist_ok=True)
-              first_p = downloaded_paths[0]
-              if first_p and os.path.isfile(first_p) and not os.path.exists(first_p + '.split_meta'):
-                  f_sz = os.path.getsize(first_p)
-                  c_dst = os.path.join(cache_dir, os.path.basename(first_p))
-                  if 0 < f_sz <= int(8.5 * (1024**3)) and not os.path.exists(c_dst):
-                      if os.path.splitdrive(first_p)[0].upper() == os.path.splitdrive(c_dst)[0].upper():
-                          os.link(first_p, c_dst)
-          except Exception:
-              pass
           tot_dt = max(0.001, time.time() - t_all)
           print(f'[Download Complete] {total_bytes/(1024**3):.2f} GiB downloaded in {tot_dt:.1f}s ({(total_bytes/(1024**2))/tot_dt:.1f} MiB/s avg)', flush=True)
           with open('models/active_main.txt', 'w', encoding='utf-8') as fw:
