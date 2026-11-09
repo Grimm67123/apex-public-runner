@@ -692,7 +692,7 @@ jobs:
           # Dynamic token budget per prompt: give single-prompt tests 64 tokens (36 per prompt in 3-prompt suites) so responses finish cleanly with zero mid-sentence cutoff!
           suite_prompt_check = os.environ.get('APEX_SUITE_PROMPT', '').strip()
           is_multi_prompt = (' ||| ' in suite_prompt_check) or (not suite_prompt_check)
-          n_predict_tokens = ('28' if is_multi_prompt else '48')
+          n_predict_tokens = ('48' if is_multi_prompt else '64')
 
           suite_prompt = os.environ.get('APEX_SUITE_PROMPT', '').strip()
           if not suite_prompt:
