@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Grimm67123/apex-inference
-          token: ${{ secrets.PRIVATE_REPO_PAT || secrets.READ_ONLY_TOKEN || secrets.APEX_PRIVATE_TOKEN || secrets.APEX_TOKEN || secrets.APEX_PAT || secrets.REPO_TOKEN || secrets.PAT || secrets.PAT_TOKEN || secrets.GH_PAT || secrets.GH_TOKEN || secrets.GITHUB_PAT || secrets.TOKEN || secrets.PRIVATE_TOKEN || secrets.ACCESS_TOKEN || secrets.CLONE_TOKEN || secrets.SOURCE_TOKEN || secrets.CODE_TOKEN || github.token }}
+          token: ${{ secrets.PRIVATE_REPO_PAT || secrets.PRIVATE_REPO_TOKEN || secrets.READ_ONLY_TOKEN || secrets.APEX_PRIVATE_TOKEN || secrets.APEX_TOKEN || secrets.APEX_PAT || secrets.REPO_TOKEN || secrets.PAT || secrets.PAT_TOKEN || secrets.GH_PAT || secrets.GH_TOKEN || secrets.GITHUB_PAT || secrets.TOKEN || secrets.PRIVATE_TOKEN || secrets.ACCESS_TOKEN || secrets.CLONE_TOKEN || secrets.SOURCE_TOKEN || secrets.CODE_TOKEN || github.token }}
           submodules: recursive
 
       - name: STAGE 0 - Ultra-Fast Bounded 6-Second Shallow Disk Reclaimer (Zero Deep-Tree Stalls)
@@ -182,7 +182,7 @@ jobs:
           if (-not (Test-Path "CMakeLists.txt")) {
             $nested = Get-ChildItem -Path . -Filter "CMakeLists.txt" -Recurse -Depth 3 -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch "\\engine\\" -and $_.FullName -notmatch "\\apex-inference\\" } | Select-Object -First 1
             if ($nested) {
-              Write-Host "[Auto-Flatten] Found root CMakeLists.txt inside nested folder $($nested.DirectoryName) — moving to workspace root..."
+              Write-Host "[Auto-Flatten] Found root CMakeLists.txt inside nested folder $($nested.DirectoryName) -- moving to workspace root..."
               Get-ChildItem -Path $nested.DirectoryName -Force | Move-Item -Destination . -Force
             }
           }
@@ -782,7 +782,7 @@ jobs:
               '--no-warmup',
               '-fa', 'on',
               '-lm', 'mmap',
-              '--ssd-bw-limit-gbps', os.environ.get('APEX_SSD_BW_LIMIT_GBPS', '0'),
+              '--ssd-bw-limit-gbps', (str(float(os.environ.get('APEX_SSD_BW_LIMIT_GBPS', '0')) / 1000.0) if float(os.environ.get('APEX_SSD_BW_LIMIT_GBPS', '0') or '0') >= 100.0 else os.environ.get('APEX_SSD_BW_LIMIT_GBPS', '0')),
               '--spec-default',
               '--temp', '0.0',
               '--seed', '42',
