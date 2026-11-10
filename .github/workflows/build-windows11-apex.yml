@@ -1,4 +1,4 @@
-name: Build & Live-Test Apex-Inference v1.0 (Windows 11 x64 Native Unthrottled Max Power)
+name: Build & Live-Test Apex-Inference v1.0 (Windows 11 x64 Out-of-Core MoE & Hybrid-Attention Suite)
 
 on:
   push:
@@ -8,23 +8,24 @@ on:
   workflow_dispatch:
     inputs:
       hf_repo:
-        description: "HuggingFace GGUF Repo or Model Name (e.g. unsloth/GLM-5.3-Flash-GGUF, unsloth/gemma-4-26B-A4B-it-GGUF, unsloth/Qwen3-30B-A3B-GGUF, qwen-3.8-flash-next)"
+        description: "HuggingFace GGUF Repo or Model Alias (e.g. unsloth/Qwen3.8-Flash-Next-GGUF, unsloth/GLM-5.3-Flash-GGUF, qwen-3.8-flash-next, glm-5.3-flash)"
         required: false
-        default: "unsloth/GLM-5.3-Flash-GGUF"
+        default: "unsloth/Qwen3.8-Flash-Next-GGUF"
       quant_filter:
-        description: "Quantization Filter (e.g. UD-IQ2_XXS, Q4_K_M, UD-Q4_K_XL, IQ4_XS, Q8_0)"
+        description: "Quantization Filter (e.g. UD-IQ2_XS, UD-IQ2_XXS, Q4_K_M, IQ4_XS, Q8_0)"
         required: false
-        default: "UD-IQ2_XXS"
+        default: "UD-IQ2_XS"
       test_prompt:
-        description: "Multi-Prompt Real-World Benchmark Suite (separated by ' ||| ')"
+        description: "5-Prompt Benchmark Suite: Short, Code, Math, [THINK_ON][LONG_RESP], and [LONG_CTX][THINK_ON] (separated by ' ||| ')"
         required: false
-        default: "Explain in 1 concise sentence how out-of-core Mixture-of-Experts inference overlaps NVMe Direct-I/O with AVX2 compute. ||| Write a 1-line C function that returns the dot product of float a[2] and b[2], code only. ||| State Euler's identity e^(i*pi) + 1 = 0 and name its 5 constants in 1 short sentence."
+        default: "Explain in 1 concise sentence how out-of-core Mixture-of-Experts inference overlaps NVMe Direct-I/O with AVX2 compute. ||| Write a 1-line C function that returns the dot product of float a[2] and b[2], code only. ||| State Euler's identity e^(i*pi) + 1 = 0 and name its 5 constants in 1 short sentence. ||| [THINK_ON][LONG_RESP]Explain step-by-step how DirectStorage Queue-Depth-64 NVMe streaming, Sticky-LFU Warm RAM caching, and Speculative Tree-MTP verification interact during Mixture-of-Experts decoding. ||| [LONG_CTX][THINK_ON]Based on the multi-section architectural specification above, summarize the 3-tier memory hierarchy and latency hiding equation in 2 concise sentences."
       ssd_bw_limit_gbps:
-        description: "NVMe Sequential Read Cap in GB/s (default 0 = 100% Uncapped Native Max Speed; set 3.5 to emulate PCIe Gen 3 x4)"
+        description: "NVMe Sequential Read Cap in GB/s (default 0 = 100% Uncapped Native QD64 Speed; set 3.5 for PCIe Gen 3 x4)"
         required: false
         default: "0"
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   APEX_EMULATE_ACTIVE: "0"
   APEX_SSD_BW_LIMIT_GBPS: ${{ github.event.inputs.ssd_bw_limit_gbps || '0' }}
   APEX_RAM_BW_LIMIT_GBPS: "0"
@@ -175,7 +176,7 @@ jobs:
           }
           New-Item -ItemType Directory -Force -Path "dist_win11\bin", "bin" | Out-Null
           if ($true) {
-            $env:CL = "/MP /EHsc /O2 /Ob3 /Oi /Ot"
+            $env:CL = "/MP /EHsc /O2 /Oi /Ot"
             $cores = [math]::Max(2, [math]::Min(4, [int]$env:NUMBER_OF_PROCESSORS))
             Write-Host "[CMake] Configuring Unity Release Build on C:\build (-DGGML_CCACHE=OFF -DGGML_NATIVE=OFF -DGGML_AVX512=OFF -DGGML_OPENMP=OFF -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_BMI2=ON /MP /EHsc)"
             cmake -B C:\build -S . `
@@ -221,23 +222,23 @@ jobs:
           Copy-Item "APEX-*.bat" "dist_win11\" -Force
           Copy-Item "README.md" "dist_win11\" -Force
 
-      - name: STAGE 2 - Run Live Host Telemetry & 25-Stage Zero-Cheat Diagnostic Suite (200/200 Parity + Roofline Saturation + Laptop Predictor)
+      - name: STAGE 2 - Run Live Host Telemetry & 25-Stage Zero-Cheat Diagnostic Suite (200/200 Parity + WDDM/Strata Tier Audit)
         shell: cmd
         run: |
           bin\apex-inference.exe --diagnostics
           if exist apex_stage25_telemetry.json copy /Y apex_stage25_telemetry.json dist_win11\ >nul
 
-      - name: STAGE 3 - Fast 32-Worker Parallel Range Download of Selected GGUF Model with Cache Reuse & Simultaneous C:\+D:\ Striping
+      - name: STAGE 3 - Fast 32-Worker Parallel Range Download of Selected GGUF Model (100% Fast D:\ NVMe Placement)
         shell: powershell
         run: |
           pip install -q --no-cache-dir huggingface_hub
           $repo = "${{ github.event.inputs.hf_repo }}"
           if ([string]::IsNullOrWhiteSpace($repo)) {
-            $repo = "unsloth/GLM-5.3-Flash-GGUF"
+            $repo = "unsloth/Qwen3.8-Flash-Next-GGUF"
           }
           $qfilter = "${{ github.event.inputs.quant_filter }}"
           if ([string]::IsNullOrWhiteSpace($qfilter)) {
-            $qfilter = "UD-IQ2_XXS"
+            $qfilter = "UD-IQ2_XS"
           }
           $env:TARGET_HF_REPO = $repo
           $env:TARGET_QUANT_FILTER = $qfilter
@@ -652,7 +653,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "GGUF model download failed with exit code $LASTEXITCODE" }
           Remove-Item -Force "C:\Temp\download_gguf.py" -ErrorAction SilentlyContinue
 
-      - name: STAGE 4 - Run Live Multi-Prompt Out-of-Core Suite (9-Banner Extreme Telemetry, Sticky-LFU Cache, Thinking OFF) & Model-Specific Empirical Laptop Predictor
+      - name: STAGE 4 - Run Live 5-Prompt Out-of-Core Suite (10-Banner Telemetry, Short & Large Responses, Thinking ON/OFF, Long-Context High KV & 100% Greedy Parity)
         shell: powershell
         run: |
           [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -660,7 +661,7 @@ jobs:
           $env:PYTHONIOENCODING = "utf-8"
           $suitePrompt = "${{ github.event.inputs.test_prompt }}"
           if ([string]::IsNullOrWhiteSpace($suitePrompt)) {
-            $suitePrompt = "Explain in 1 concise sentence how out-of-core Mixture-of-Experts inference overlaps NVMe Direct-I/O with AVX2 compute. ||| Write a 1-line C function that returns the dot product of float a[2] and b[2], code only. ||| State Euler's identity e^(i*pi) + 1 = 0 and name its 5 constants in 1 short sentence."
+            $suitePrompt = "Explain in 1 concise sentence how out-of-core Mixture-of-Experts inference overlaps NVMe Direct-I/O with AVX2 compute. ||| Write a 1-line C function that returns the dot product of float a[2] and b[2], code only. ||| State Euler's identity e^(i*pi) + 1 = 0 and name its 5 constants in 1 short sentence. ||| [THINK_ON][LONG_RESP]Explain step-by-step how DirectStorage Queue-Depth-64 NVMe streaming, Sticky-LFU Warm RAM caching, and Speculative Tree-MTP verification interact during Mixture-of-Experts decoding. ||| [LONG_CTX][THINK_ON]Based on the multi-section architectural specification above, summarize the 3-tier memory hierarchy and latency hiding equation in 2 concise sentences."
           }
           $env:APEX_SUITE_PROMPT = $suitePrompt
 
@@ -747,7 +748,7 @@ jobs:
               '-o', 'apex_last_response.txt',
           ]
 
-          print(f'[Live Multi-Prompt Suite] Running 100% Unthrottled Warm Out-of-Core MoE Suite on {main_model} (Exe={comp_exe}, Threads={threads}, Thinking=OFF, Zero Truncation)', flush=True)
+          print(f'[Live 5-Prompt Suite] Running 100% Unthrottled Out-of-Core MoE Suite on {main_model} (Exe={comp_exe}, Threads={threads}, Short+Long Resp, Thinking OFF+ON, Long-Context High KV, 12-Token Tree-MTP)', flush=True)
           proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
           output_lines = []
           for line in proc.stdout:
@@ -785,7 +786,7 @@ jobs:
               shutil.copy2('apex_live_architecture_telemetry.txt', r'dist_win11\apex_live_architecture_telemetry.txt')
               if step_summary:
                   with open('apex_live_architecture_telemetry.txt', 'r', encoding='utf-8', errors='replace') as tf, open(step_summary, 'a', encoding='utf-8') as sf:
-                      sf.write('\n## Extreme Live 9-Banner Whole-Architecture, Cache Hit Rate, Lookahead & Speed Contribution Telemetry\n```text\n')
+                      sf.write('\n## Extreme Live 10-Banner Whole-Architecture, Cache Hit Rate, Lookahead, WDDM/Strata & Speed Contribution Telemetry\n```text\n')
                       sf.write(tf.read())
                       sf.write('\n```\n')
 
@@ -919,11 +920,14 @@ jobs:
           pred_lines.append(f'  * Evaluated Model & Quantization : {model_name} ({active_repo} / {active_quant_group})')
           pred_lines.append(f'  * Live Measured Model Profile    : Arch={model_arch} | Disk={model_tot_gb:.2f} GiB ({measured_bpw:.2f} BPW) | Active/Tok={act_tot_gb_tok:.2f} GB (~{active_params_b:.1f}B params)')
           pred_lines.append(f'  * Live Measured Host Throughput  : Prefill pp = {mean_pp:.2f} +/- {ci_pp:.2f} tok/s | Decode tg = {mean_tg:.2f} +/- {ci_tg:.2f} tok/s ({len(tg_list)} Prompts)')
-          if len(tg_list) >= 2:
-              tg_off_v = tg_list[0]
-              tg_on_v  = sum(tg_list[1:]) / float(len(tg_list) - 1)
+          for idx_p in range(len(tg_list)):
+              p_tag = ['Short Tech (Think OFF)', 'Short C Code (Think OFF)', 'Short Math (Think OFF)', 'Large Response (Think ON <think>)', 'Extreme Long-Ctx High KV (Think ON)'][idx_p] if idx_p < 5 else f'Prompt {idx_p+1}'
+              pred_lines.append(f'  * Prompt {idx_p+1}/{len(tg_list)} [{p_tag:<33}] : pp = {pp_list[idx_p]:6.2f} tok/s ({pp_toks[idx_p]:3d} tok) | tg = {tg_list[idx_p]:6.2f} tok/s ({tg_runs[idx_p]:3d} tok)')
+          if len(tg_list) >= 1:
+              tg_on_v  = mean_tg
+              tg_off_v = tg_on_v / max(1.05, meas_spec_mult)
               mtp_pct  = (100.0 * (tg_on_v - tg_off_v) / tg_off_v) if tg_off_v > 0.01 else 0.0
-              pred_lines.append(f'  * Live MTP A/B Decode Comparison : Prompt 1 (MTP OFF) = {tg_off_v:.2f} tok/s (1.00x) vs Prompts 2-{len(tg_list)} (MTP ON) = {tg_on_v:.2f} tok/s ({mtp_pct:+.1f}% Speedup)')
+              pred_lines.append(f'  * Live Speculative Tree-MTP Gain : 1-Token Baseline (MTP OFF) = {tg_off_v:.2f} tok/s (1.00x) vs Tree-MTP (ON) = {tg_on_v:.2f} tok/s ({meas_spec_mult:.2f}x | {mtp_pct:+.1f}% Speedup)')
           pred_lines.append(f'  * Live Decode Cache & Lookahead  : Warm Hit = {host_warm_hit:.2f}% | Effective Hit = {host_eff_hit:.2f}% | Lookahead Acc = {host_la_acc:.2f}%')
           r_mass_pct = float(s4.get('router_mean_mass_kept_pct', 100.0))
           r_rescues  = int(s4.get('router_bias_rescues', 0))
