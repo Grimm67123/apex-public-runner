@@ -558,7 +558,7 @@ jobs:
           cur_d_free = shutil.disk_usage(primary_dir).free
           cur_c_free = shutil.disk_usage(spill_dir).free if os.path.abspath(primary_dir) != os.path.abspath(spill_dir) else 0
           c_os_reserve = 7 * (1024 ** 3)
-          c_usable = max(0, ((cur_c_free - c_os_reserve) // align_gran) * align_gran) if total_bytes > (6 * 1024 ** 3) else 0
+          c_usable = 0 if cur_d_free >= (total_bytes + (2 * 1024 ** 3)) else (max(0, ((cur_c_free - c_os_reserve) // align_gran) * align_gran) if total_bytes > (6 * 1024 ** 3) else 0)
 
           d_jobs = []
           c_jobs = []
@@ -699,7 +699,9 @@ jobs:
               suite_prompt = (
                   "Explain in 1 concise sentence how out-of-core Mixture-of-Experts inference overlaps NVMe Direct-I/O with AVX2 compute. ||| "
                   "Write a 1-line C function that returns the dot product of float a[2] and b[2], code only. ||| "
-                  "State Euler's identity e^(i*pi) + 1 = 0 and name its 5 constants in 1 short sentence."
+                  "State Euler's identity e^(i*pi) + 1 = 0 and name its 5 constants in 1 short sentence. ||| "
+                  "[THINK_ON][LONG_RESP]Explain step-by-step how DirectStorage Queue-Depth-64 NVMe streaming, Sticky-LFU Warm RAM caching, and Speculative Tree-MTP verification interact during Mixture-of-Experts decoding. ||| "
+                  "[LONG_CTX][THINK_ON]Based on the multi-section architectural specification above, summarize the 3-tier memory hierarchy and latency hiding equation in 2 concise sentences."
               )
 
           threads = max(2, os.cpu_count() or 2)
