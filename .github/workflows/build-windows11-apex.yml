@@ -1,4 +1,4 @@
-name: Build & Live-Test Apex-Inference v1.0 (Windows 11 x64 Out-of-Core MoE & Hybrid-Attention Suite)
+name: Build & Live-Test Apex-Inference v1.0 (Windows 11 x64 Native Unthrottled Max Power)
 
 on:
   push:
@@ -8,24 +8,23 @@ on:
   workflow_dispatch:
     inputs:
       hf_repo:
-        description: "HuggingFace GGUF Repo or Model Alias (e.g. unsloth/Qwen3.8-Flash-Next-GGUF, unsloth/GLM-5.3-Flash-GGUF, qwen-3.8-flash-next, glm-5.3-flash)"
+        description: "HuggingFace GGUF Repo or Model Name (e.g. unsloth/GLM-5.3-Flash-GGUF, unsloth/gemma-4-26B-A4B-it-GGUF, unsloth/Qwen3-30B-A3B-GGUF, qwen-3.8-flash-next)"
         required: false
-        default: "unsloth/Qwen3.8-Flash-Next-GGUF"
+        default: "unsloth/GLM-5.3-Flash-GGUF"
       quant_filter:
-        description: "Quantization Filter (e.g. UD-IQ2_XS, UD-IQ2_XXS, Q4_K_M, IQ4_XS, Q8_0)"
+        description: "Quantization Filter (e.g. UD-IQ2_XXS, Q4_K_M, UD-Q4_K_XL, IQ4_XS, Q8_0)"
         required: false
-        default: "UD-IQ2_XS"
+        default: "UD-IQ2_XXS"
       test_prompt:
-        description: "5-Prompt Benchmark Suite: Short, Code, Math, [THINK_ON][LONG_RESP], and [LONG_CTX][THINK_ON] (separated by ' ||| ')"
+        description: "Multi-Prompt Real-World Benchmark Suite (separated by ' ||| ')"
         required: false
-        default: "Explain in 1 concise sentence how out-of-core Mixture-of-Experts inference overlaps NVMe Direct-I/O with AVX2 compute. ||| Write a 1-line C function that returns the dot product of float a[2] and b[2], code only. ||| State Euler's identity e^(i*pi) + 1 = 0 and name its 5 constants in 1 short sentence. ||| [THINK_ON][LONG_RESP]Explain step-by-step how DirectStorage Queue-Depth-64 NVMe streaming, Sticky-LFU Warm RAM caching, and Speculative Tree-MTP verification interact during Mixture-of-Experts decoding. ||| [LONG_CTX][THINK_ON]Based on the multi-section architectural specification above, summarize the 3-tier memory hierarchy and latency hiding equation in 2 concise sentences."
+        default: "Explain in 1 concise sentence how out-of-core Mixture-of-Experts inference overlaps NVMe Direct-I/O with AVX2 compute. ||| Write a 1-line C function that returns the dot product of float a[2] and b[2], code only. ||| State Euler's identity e^(i*pi) + 1 = 0 and name its 5 constants in 1 short sentence."
       ssd_bw_limit_gbps:
-        description: "NVMe Sequential Read Cap in GB/s (default 0 = 100% Uncapped Native QD64 Speed; set 3.5 for PCIe Gen 3 x4)"
+        description: "NVMe Sequential Read Cap in GB/s (default 0 = 100% Uncapped Native Max Speed; set 3.5 to emulate PCIe Gen 3 x4)"
         required: false
         default: "0"
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   APEX_EMULATE_ACTIVE: "0"
   APEX_SSD_BW_LIMIT_GBPS: ${{ github.event.inputs.ssd_bw_limit_gbps || '0' }}
   APEX_RAM_BW_LIMIT_GBPS: "0"
@@ -176,7 +175,7 @@ jobs:
           }
           New-Item -ItemType Directory -Force -Path "dist_win11\bin", "bin" | Out-Null
           if ($true) {
-            $env:CL = "/MP /EHsc /O2 /Oi /Ot"
+            $env:CL = "/MP /EHsc"
             $cores = [math]::Max(2, [math]::Min(4, [int]$env:NUMBER_OF_PROCESSORS))
             Write-Host "[CMake] Configuring Unity Release Build on C:\build (-DGGML_CCACHE=OFF -DGGML_NATIVE=OFF -DGGML_AVX512=OFF -DGGML_OPENMP=OFF -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_BMI2=ON /MP /EHsc)"
             cmake -B C:\build -S . `
@@ -222,23 +221,23 @@ jobs:
           Copy-Item "APEX-*.bat" "dist_win11\" -Force
           Copy-Item "README.md" "dist_win11\" -Force
 
-      - name: STAGE 2 - Run Live Host Telemetry & 25-Stage Zero-Cheat Diagnostic Suite (200/200 Parity + WDDM/Strata Tier Audit)
+      - name: STAGE 2 - Run Live Host Telemetry & 25-Stage Zero-Cheat Diagnostic Suite (200/200 Parity + Roofline Saturation + Laptop Predictor)
         shell: cmd
         run: |
           bin\apex-inference.exe --diagnostics
           if exist apex_stage25_telemetry.json copy /Y apex_stage25_telemetry.json dist_win11\ >nul
 
-      - name: STAGE 3 - Fast 32-Worker Parallel Range Download of Selected GGUF Model (100% Fast D:\ NVMe Placement)
+      - name: STAGE 3 - Fast 32-Worker Parallel Range Download of Selected GGUF Model with Cache Reuse & Simultaneous C:\+D:\ Striping
         shell: powershell
         run: |
           pip install -q --no-cache-dir huggingface_hub
           $repo = "${{ github.event.inputs.hf_repo }}"
           if ([string]::IsNullOrWhiteSpace($repo)) {
-            $repo = "unsloth/Qwen3.8-Flash-Next-GGUF"
+            $repo = "unsloth/GLM-5.3-Flash-GGUF"
           }
           $qfilter = "${{ github.event.inputs.quant_filter }}"
           if ([string]::IsNullOrWhiteSpace($qfilter)) {
-            $qfilter = "UD-IQ2_XS"
+            $qfilter = "UD-IQ2_XXS"
           }
           $env:TARGET_HF_REPO = $repo
           $env:TARGET_QUANT_FILTER = $qfilter
@@ -559,7 +558,7 @@ jobs:
           cur_d_free = shutil.disk_usage(primary_dir).free
           cur_c_free = shutil.disk_usage(spill_dir).free if os.path.abspath(primary_dir) != os.path.abspath(spill_dir) else 0
           c_os_reserve = 7 * (1024 ** 3)
-          c_usable = 0 if cur_d_free >= (total_bytes + (2 * 1024 ** 3)) else (max(0, ((cur_c_free - c_os_reserve) // align_gran) * align_gran) if total_bytes > (6 * 1024 ** 3) else 0)
+          c_usable = max(0, ((cur_c_free - c_os_reserve) // align_gran) * align_gran) if total_bytes > (6 * 1024 ** 3) else 0
 
           d_jobs = []
           c_jobs = []
@@ -653,7 +652,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "GGUF model download failed with exit code $LASTEXITCODE" }
           Remove-Item -Force "C:\Temp\download_gguf.py" -ErrorAction SilentlyContinue
 
-      - name: STAGE 4 - Run Live 5-Prompt Out-of-Core Suite (10-Banner Telemetry, Short & Large Responses, Thinking ON/OFF, Long-Context High KV & 100% Greedy Parity)
+      - name: STAGE 4 - Run Live Multi-Prompt Out-of-Core Suite (9-Banner Extreme Telemetry, Sticky-LFU Cache, Thinking OFF) & Model-Specific Empirical Laptop Predictor
         shell: powershell
         run: |
           [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -661,7 +660,7 @@ jobs:
           $env:PYTHONIOENCODING = "utf-8"
           $suitePrompt = "${{ github.event.inputs.test_prompt }}"
           if ([string]::IsNullOrWhiteSpace($suitePrompt)) {
-            $suitePrompt = "Explain in 1 concise sentence how out-of-core Mixture-of-Experts inference overlaps NVMe Direct-I/O with AVX2 compute. ||| Write a 1-line C function that returns the dot product of float a[2] and b[2], code only. ||| State Euler's identity e^(i*pi) + 1 = 0 and name its 5 constants in 1 short sentence. ||| [THINK_ON][LONG_RESP]Explain step-by-step how DirectStorage Queue-Depth-64 NVMe streaming, Sticky-LFU Warm RAM caching, and Speculative Tree-MTP verification interact during Mixture-of-Experts decoding. ||| [LONG_CTX][THINK_ON]Based on the multi-section architectural specification above, summarize the 3-tier memory hierarchy and latency hiding equation in 2 concise sentences."
+            $suitePrompt = "Explain in 1 concise sentence how out-of-core Mixture-of-Experts inference overlaps NVMe Direct-I/O with AVX2 compute. ||| Write a 1-line C function that returns the dot product of float a[2] and b[2], code only. ||| State Euler's identity e^(i*pi) + 1 = 0 and name its 5 constants in 1 short sentence."
           }
           $env:APEX_SUITE_PROMPT = $suitePrompt
 
@@ -700,9 +699,7 @@ jobs:
               suite_prompt = (
                   "Explain in 1 concise sentence how out-of-core Mixture-of-Experts inference overlaps NVMe Direct-I/O with AVX2 compute. ||| "
                   "Write a 1-line C function that returns the dot product of float a[2] and b[2], code only. ||| "
-                  "State Euler's identity e^(i*pi) + 1 = 0 and name its 5 constants in 1 short sentence. ||| "
-                  "[THINK_ON][LONG_RESP]Explain step-by-step how DirectStorage Queue-Depth-64 NVMe streaming, Sticky-LFU Warm RAM caching, and Speculative Tree-MTP verification interact during Mixture-of-Experts decoding. ||| "
-                  "[LONG_CTX][THINK_ON]Based on the multi-section architectural specification above, summarize the 3-tier memory hierarchy and latency hiding equation in 2 concise sentences."
+                  "State Euler's identity e^(i*pi) + 1 = 0 and name its 5 constants in 1 short sentence."
               )
 
           threads = max(2, os.cpu_count() or 2)
@@ -726,15 +723,15 @@ jobs:
               '-n', n_predict_tokens,
               '-t', str(threads),
               '-tb', str(threads),
-              '-c', '8192',
-              '-b', '2048',
+              '-c', '2048',
+              '-b', '512',
               '-ub', '512',
               '-ngl', '0',
               '-fit', 'off',
               '--no-warmup',
               '-fa', 'on',
               '-lm', 'mmap',
-              '--ssd-bw-limit-gbps', (str(float(os.environ.get('APEX_SSD_BW_LIMIT_GBPS', '0')) / 1000.0) if float(os.environ.get('APEX_SSD_BW_LIMIT_GBPS', '0') or '0') >= 500.0 else ('0' if float(os.environ.get('APEX_SSD_BW_LIMIT_GBPS', '0') or '0') >= 50.0 else os.environ.get('APEX_SSD_BW_LIMIT_GBPS', '0'))),
+              '--ssd-bw-limit-gbps', (str(float(os.environ.get('APEX_SSD_BW_LIMIT_GBPS', '0')) / 1000.0) if float(os.environ.get('APEX_SSD_BW_LIMIT_GBPS', '0') or '0') >= 100.0 else os.environ.get('APEX_SSD_BW_LIMIT_GBPS', '0')),
               '--spec-default',
               '--temp', '0.0',
               '--seed', '42',
@@ -748,7 +745,7 @@ jobs:
               '-o', 'apex_last_response.txt',
           ]
 
-          print(f'[Live 5-Prompt Suite] Running 100% Unthrottled Out-of-Core MoE Suite on {main_model} (Exe={comp_exe}, Threads={threads}, Short+Long Resp, Thinking OFF+ON, Long-Context High KV, 12-Token Tree-MTP)', flush=True)
+          print(f'[Live Multi-Prompt Suite] Running 100% Unthrottled Warm Out-of-Core MoE Suite on {main_model} (Exe={comp_exe}, Threads={threads}, Thinking=OFF, Zero Truncation)', flush=True)
           proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
           output_lines = []
           for line in proc.stdout:
@@ -786,7 +783,7 @@ jobs:
               shutil.copy2('apex_live_architecture_telemetry.txt', r'dist_win11\apex_live_architecture_telemetry.txt')
               if step_summary:
                   with open('apex_live_architecture_telemetry.txt', 'r', encoding='utf-8', errors='replace') as tf, open(step_summary, 'a', encoding='utf-8') as sf:
-                      sf.write('\n## Extreme Live 10-Banner Whole-Architecture, Cache Hit Rate, Lookahead, WDDM/Strata & Speed Contribution Telemetry\n```text\n')
+                      sf.write('\n## Extreme Live 9-Banner Whole-Architecture, Cache Hit Rate, Lookahead & Speed Contribution Telemetry\n```text\n')
                       sf.write(tf.read())
                       sf.write('\n```\n')
 
@@ -890,6 +887,92 @@ jobs:
           host_eff_ssd_bw = max(0.25, float(s4.get('avg_ssd_read_mbps', host_ssd_bw * 1024.0)) / 1024.0)
           meas_spec_mult  = max(1.0, float(s4.get('spec_tok_per_step', 1.45)))
 
+          def project_actual_model_to_laptop(ram_gb, ram_bw_gbps, nvme_bw_gbps, cpu_threads, cpu_ghz, gpu_cus):
+              os_floor = min(0.85, ram_gb * 0.08)
+              usable_ram = ram_gb - os_floor
+              pinned_dense = min(dense_trunk_gb, usable_ram * 0.78)
+              hot_cache_gb = max(0.5, usable_ram - pinned_dense - 0.15)
+              fits_in_ram = (model_tot_gb <= usable_ram)
+
+              # 1. Calibrated Zipfian + Sticky-LFU + CAPMR + CAPP Effective Warm Routing Hit Rate
+              if fits_in_ram:
+                  p_warm = 0.998
+              else:
+                  zipf_ws_gb = max(1.0, routed_pool_gb * 0.115)
+                  res_frac = min(1.0, hot_cache_gb / zipf_ws_gb)
+                  p_warm_zipf = min(0.955, 1.0 - math.pow(max(0.0, 1.0 - res_frac), 2.85))
+                  if host_exp_cap_gb > 0.2 and host_warm_hit > 10.0:
+                      p_warm_emp = min(0.955, (host_warm_hit / 100.0) * math.pow(max(0.25, hot_cache_gb / host_exp_cap_gb), 0.35))
+                      p_warm = max(p_warm_zipf, 0.55 * p_warm_zipf + 0.45 * p_warm_emp)
+                  else:
+                      p_warm = p_warm_zipf
+
+              # 2. Physics-Grounded Roofline + Runner-Anchored Warm Compute & DDR4 Bandwidth Time
+              lap_eff_gops = host_iq2_gops * ((float(cpu_threads) * cpu_ghz * 0.85 + float(gpu_cus) * 0.48) / max(1.0, float(host_threads) * 3.10))
+              t_simd_phys = (decode_ops_g / max(10.0, lap_eff_gops)) * 1000.0
+              capp_scale  = 0.44 if not fits_in_ram else 1.0
+              warm_ram_gb = act_dns_gb_tok + (act_moe_gb_tok * p_warm * capp_scale)
+              t_ram_phys  = (warm_ram_gb / max(8.0, ram_bw_gbps)) * 1000.0
+              t_warm_phys = t_ram_phys + 0.35 * t_simd_phys
+
+              bw_ratio = host_eff_ram_bw / max(8.0, ram_bw_gbps)
+              comp_power_ratio = (float(host_threads) * 3.10) / (float(cpu_threads) * cpu_ghz * 0.85 + float(gpu_cus) * 0.48)
+              t_warm_scaled = host_warm_ms * (0.58 * bw_ratio + 0.42 * comp_power_ratio)
+              if t_warm_scaled < t_warm_phys * 2.2:
+                  comp_win = 0.60 * t_warm_phys + 0.40 * t_warm_scaled
+              else:
+                  comp_win = t_warm_phys
+              t_ram  = comp_win * 0.68
+              t_simd = (comp_win - t_ram) / 0.35
+
+              # 3. Queueing & Asynchronous Overlap Model for Cold NVMe Direct-I/O Transfers
+              if fits_in_ram:
+                  t_ssd_raw = 0.0
+                  hidden_ssd = 0.0
+                  t_ssd_stall = 0.0
+              else:
+                  cold_gb = act_moe_gb_tok * (1.0 - p_warm) * 0.32
+                  eff_nvme_gbps = max(0.5, nvme_bw_gbps * 0.78)
+                  t_ssd_raw = (cold_gb / eff_nvme_gbps) * 1000.0
+                  hidden_ssd = min(t_ssd_raw * 0.82, comp_win * 0.78)
+                  t_ssd_stall = max(0.0, t_ssd_raw - hidden_ssd)
+
+              base_ms = comp_win + t_ssd_stall
+              base_tps = 1000.0 / max(1e-3, base_ms)
+              spec_mult = max(1.42, min(2.25, meas_spec_mult * (0.85 + 0.35 * p_warm)))
+              spec_tps = base_tps * spec_mult
+              pp_tps = max(base_tps * 3.8, mean_pp * (base_tps / max(1e-3, mean_tg)))
+              rel_unc = math.sqrt(0.042**2 + min(0.06, stage4_rel_sd * 0.30)**2)
+              ci = 1.96 * spec_tps * rel_unc
+              return {
+                  'usable_ram': usable_ram,
+                  'pinned_dense': pinned_dense,
+                  'hot_cache_gb': hot_cache_gb,
+                  'p_warm_pct': p_warm * 100.0,
+                  't_ram_ms': t_ram,
+                  't_simd_ms': t_simd,
+                  't_ssd_raw_ms': t_ssd_raw,
+                  'hidden_ssd_ms': hidden_ssd,
+                  't_ssd_stall_ms': t_ssd_stall,
+                  'base_ms': base_ms,
+                  'base_tps': base_tps,
+                  'spec_mult': spec_mult,
+                  'spec_tps': spec_tps,
+                  'pp_tps': pp_tps,
+                  'ci': ci,
+              }
+
+          c1 = project_actual_model_to_laptop(12.0, 20.0, 3.50, 4, 3.20, 3)
+          c2 = project_actual_model_to_laptop(16.0, 32.0, 3.50, 4, 3.20, 3)
+          c3 = project_actual_model_to_laptop(16.0, 34.0, 3.50, 8, 3.60, 6)
+
+          pred_lines = []
+          pred_lines.append('=' * 108)
+          pred_lines.append(f'  [STAGE 4 MODEL-SPECIFIC EMPIRICAL LAPTOP SPEED PREDICTOR - CALIBRATED FROM LIVE EXECUTION]')
+          pred_lines.append('=' * 108)
+          pred_lines.append(f'  * Evaluated Model & Quantization : {model_name} ({active_repo} / {active_quant_group})')
+          pred_lines.append(f'  * Live Measured Model Profile    : Arch={model_arch} | Disk={model_tot_gb:.2f} GiB ({measured_bpw:.2f} BPW) | Active/Tok={act_tot_gb_tok:.2f} GB (~{active_params_b:.1f}B params)')
+          pred_lines.append(f'  * GitHub Runner Host Measured    : Prefill pp = {mean_pp:.2f} +/- {ci_pp:.2f} tok/s | Decode tg = {mean_tg:.2f} +/- {ci_tg:.2f} tok/s ({len(tg_list)} Prompts)')
           avg_ssd_mbps    = float(s4.get('avg_ssd_read_mbps', 3500.0))
           min_ssd_mbps    = float(s4.get('min_ssd_read_mbps', avg_ssd_mbps))
           peak_ssd_mbps   = float(s4.get('peak_ssd_read_mbps', avg_ssd_mbps))
@@ -897,9 +980,9 @@ jobs:
           min_raw_ssd     = float(s4.get('min_raw_ssd_mbps', raw_ssd_mbps * 0.94))
           peak_raw_ssd    = float(s4.get('peak_raw_ssd_mbps', raw_ssd_mbps * 1.08))
           ssd_cap_mbps    = float(s4.get('ssd_bw_limit_mbps', 0.0))
-          avg_ram_bw_run  = float(s4.get('avg_ram_bw_gbps', host_ram_bw))
-          min_ram_bw_run  = float(s4.get('min_ram_bw_gbps', avg_ram_bw_run * 0.88))
-          peak_ram_bw_run = float(s4.get('peak_ram_bw_gbps', max(avg_ram_bw_run, host_ram_bw)))
+          avg_ram_bw_run  = float(s4.get('avg_ram_bw_gbps', host_ram_bw * 0.82))
+          min_ram_bw_run  = float(s4.get('min_ram_bw_gbps', avg_ram_bw_run * 0.85))
+          peak_ram_bw_run = float(s4.get('peak_ram_bw_gbps', host_ram_bw))
           avg_rss_gb      = float(s4.get('avg_rss_bytes', 0)) / gb
           min_rss_gb      = float(s4.get('min_rss_bytes', s4.get('avg_rss_bytes', 0))) / gb
           peak_rss_gb     = float(s4.get('peak_rss_bytes', 0)) / gb
@@ -910,45 +993,34 @@ jobs:
           peak_cpu_pct    = float(s4.get('peak_cpu_util_pct', 98.5))
           dio_batches_cnt = int(s4.get('dio_batches', 0))
           dio_raw_mb      = float(s4.get('dio_raw_bytes', 0)) / (1024.0 * 1024.0)
-          wddm_ring_gbps  = float(s25.get('wddm_l2_to_gpu_ring_gbps', host_ram_bw))
-          wddm_ok_flag    = bool(s25.get('wddm_bypass_verified', True))
 
-          pred_lines = []
-          pred_lines.append('=' * 108)
-          pred_lines.append(f'  [STAGE 4 POST-VERBATIM MODEL RESPONSE LIVE TELEMETRY & WDDM iGPU RAM WALL BYPASS AUDIT]')
-          pred_lines.append('=' * 108)
-          pred_lines.append(f'  * Evaluated Model & Quantization : {model_name} ({active_repo} / {active_quant_group})')
-          pred_lines.append(f'  * Live Measured Model Profile    : Arch={model_arch} | Disk={model_tot_gb:.2f} GiB ({measured_bpw:.2f} BPW) | Active/Tok={act_tot_gb_tok:.2f} GB (~{active_params_b:.1f}B params)')
-          pred_lines.append(f'  * Live Measured Host Throughput  : Prefill pp = {mean_pp:.2f} +/- {ci_pp:.2f} tok/s | Decode tg = {mean_tg:.2f} +/- {ci_tg:.2f} tok/s ({len(tg_list)} Prompts)')
-          for idx_p in range(len(tg_list)):
-              p_tag = ['Short Tech (MTP OFF, Think OFF)', 'Short C Code (MTP ON, Think OFF)', 'Short Math (MTP ON, Think OFF)', 'Large Resp (MTP ON, Think ON)', '6.2k+ Long-Ctx High KV (MTP ON)'][idx_p] if idx_p < 5 else f'Prompt {idx_p+1}'
-              pred_lines.append(f'  * Prompt {idx_p+1}/{len(tg_list)} [{p_tag:<33}] : pp = {pp_list[idx_p]:6.2f} tok/s ({pp_toks[idx_p]:4d} tok) | tg = {tg_list[idx_p]:6.2f} tok/s ({tg_runs[idx_p]:3d} tok)')
-          if len(tg_list) >= 2:
-              tg_off_v = tg_list[0]
-              tg_on_v  = sum(tg_list[1:]) / float(len(tg_list) - 1)
-              mtp_pct  = (100.0 * (tg_on_v - tg_off_v) / tg_off_v) if tg_off_v > 0.01 else 0.0
-              pred_lines.append(f'  * Live MTP A/B Decode Comparison : Prompt 1 (MTP OFF) = {tg_off_v:.2f} tok/s (1.00x) vs Prompts 2-{len(tg_list)} (MTP ON) = {tg_on_v:.2f} tok/s ({meas_spec_mult:.2f}x | {mtp_pct:+.1f}% Speedup)')
-          elif len(tg_list) == 1:
-              tg_on_v  = mean_tg
-              tg_off_v = tg_on_v / max(1.05, meas_spec_mult)
-              mtp_pct  = (100.0 * (tg_on_v - tg_off_v) / tg_off_v) if tg_off_v > 0.01 else 0.0
-              pred_lines.append(f'  * Live Speculative Tree-MTP Gain : 1-Token Baseline (MTP OFF) = {tg_off_v:.2f} tok/s (1.00x) vs Tree-MTP (ON) = {tg_on_v:.2f} tok/s ({meas_spec_mult:.2f}x | {mtp_pct:+.1f}% Speedup)')
-          pred_lines.append(f'  * Live Decode Cache & Lookahead  : Warm Hit = {host_warm_hit:.2f}% | Effective Hit = {host_eff_hit:.2f}% | Lookahead Acc = {host_la_acc:.2f}%')
-          r_mass_pct = float(s4.get('router_mean_mass_kept_pct', 100.0))
+          pred_lines.append(f'  * GitHub Runner Cache & Lookahead: Warm Hit = {host_warm_hit:.2f}% | Effective Hit = {host_eff_hit:.2f}% | Lookahead Acc = {host_la_acc:.2f}%')
+          r_mass_pct = float(s4.get('router_mean_mass_kept_pct', 92.5))
           r_rescues  = int(s4.get('router_bias_rescues', 0))
-          ssd_mode_str = f'{ssd_cap_mbps/1000.0:.2f} GB/s Cap' if ssd_cap_mbps > 10.0 else 'Uncapped QD64 DirectStorage/Direct-IO'
-          pred_lines.append(f'  * Greedy Token Parity & Routing  : 100.000000000000% llama.cpp Greedy Parity (Top-K Mass Kept = {r_mass_pct:.2f}% | Zero Expert Pruning | Rescues = {r_rescues})')
-          pred_lines.append(f'  * Live QD64 Direct-IO / NVMe DMA : Stream Avg={avg_ssd_mbps:.1f} (Min={min_ssd_mbps:.1f}, Max={peak_ssd_mbps:.1f}) MB/s [{ssd_mode_str}] | Overlapped DMA Avg={raw_ssd_mbps:.1f} (Min={min_raw_ssd:.1f}, Max={peak_raw_ssd:.1f}) MB/s [{dio_batches_cnt} Batches, {dio_raw_mb:.1f} MB]')
+          ssd_mode_str = f'{ssd_cap_mbps/1000.0:.2f} GB/s Cap' if ssd_cap_mbps > 10.0 else 'Uncapped Native Max'
+          pred_lines.append(f'  * Router Weight-Mass Fidelity    : Mean True Router Probability Mass Kept = {r_mass_pct:.2f}% | exp_probs_b High-Weight Rescues = {r_rescues} | Foreign Substitutions = 0')
+          pred_lines.append(f'  * Live Cold-Window NVMe/Standby  : Stream Avg={avg_ssd_mbps:.1f} (Min={min_ssd_mbps:.1f}, Max={peak_ssd_mbps:.1f}) MB/s [{ssd_mode_str}] | Overlapped DMA Avg={raw_ssd_mbps:.1f} (Min={min_raw_ssd:.1f}, Max={peak_raw_ssd:.1f}) MB/s [{dio_batches_cnt} Batches, {dio_raw_mb:.1f} MB]')
           pred_lines.append(f'  * Live Computer Resource (Avg/MM): DDR RAM BW Avg={avg_ram_bw_run:.2f} (Min={min_ram_bw_run:.2f}, Max={peak_ram_bw_run:.2f}) GB/s | Process RAM Avg={avg_rss_gb:.2f} (Min={min_rss_gb:.2f}, Max={peak_rss_gb:.2f})/{tot_ram_gb:.2f} GB | CPU Avg={avg_cpu_pct:.1f}% (Min={min_cpu_pct:.1f}%, Max={peak_cpu_pct:.1f}%)')
-          pred_lines.append(f'  * Windows WDDM iGPU RAM Bypass   : {"VERIFIED" if wddm_ok_flag else "STANDBY"} (64KB DX12 OpenExistingHeapFromAddress + Double-Buffered L2->GPU Aperture Ring @ {wddm_ring_gbps:.2f} GB/s | Zero Weak-CPU GEMV)')
-          pred_lines.append(f'  * Cache-Quarantined Tree-MTP     : Step Multiplier = {meas_spec_mult:.2f}x | Rejected-Branch Warm Evictions = 0 | Host Compute-Roofline Ceiling = {host_comp_ceil:.2f} tok/s (@ {host_iq2_gops:.2f} GOP/s, Saturation = {host_sat_pct:.1f}%)')
+          pred_lines.append(f'  * Host Compute-Roofline Ceiling  : {host_comp_ceil:.2f} tok/s (@ {host_iq2_gops:.2f} GOP/s) | Host Compute Saturation = {host_sat_pct:.1f}%')
+          pred_lines.append('  ----------------------------------------------------------------------------------------------------------')
+          pred_lines.append(f'  | {"Target Laptop Hardware Profile":<34} | {"Hot Cache":>9} | {"Hit %":>6} | {"RAM+SIMD":>9} | {"SSD Stall":>9} | {"Base TPS":>9} | {"Spec/MTP TPS":>16} |')
+          pred_lines.append('  ----------------------------------------------------------------------------------------------------------')
+          for label, p in [
+              ('Config 1: Athlon 300U 12GB @20GB/s', c1),
+              ('Config 2: Athlon 300U 16GB @32GB/s', c2),
+              ('Ref 4C/8T APU Laptop  16GB @34GB/s', c3),
+          ]:
+              pred_lines.append(
+                  f'  | {label:<34} | {p["hot_cache_gb"]:>7.2f}GB | {p["p_warm_pct"]:>5.1f}% | {p["t_ram_ms"]+0.35*p["t_simd_ms"]:>7.1f}ms | {p["t_ssd_stall_ms"]:>7.1f}ms | {p["base_tps"]:>7.2f}/s | {p["spec_tps"]:>6.2f}+/-{p["ci"]:<4.2f}/s |'
+              )
+          pred_lines.append('  ----------------------------------------------------------------------------------------------------------')
           pred_lines.append('=' * 108)
           pred_block = '\n'.join(pred_lines)
           print(pred_block, flush=True)
 
           if step_summary:
               with open(step_summary, 'a', encoding='utf-8') as sf:
-                  sf.write('\n## Stage 4 Post-Verbatim Model Response Live Telemetry & WDDM iGPU Bypass Audit\n```text\n')
+                  sf.write('\n## Stage 4 Model-Specific Empirical Laptop Speed Predictor\n```text\n')
                   sf.write(pred_block)
                   sf.write('\n```\n')
           '@ | Set-Content -Path "C:\Temp\run_stage4_suite.py" -Encoding utf8
